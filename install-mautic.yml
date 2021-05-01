@@ -4,9 +4,10 @@
   gather_facts: true
 
   vars:
-
+  
     web_url: marketing.budeis.com
     mysql_root_password: Root@123
+    ssl_register_id: developer@budeis.com
 
   tasks:
   - name: Remove a list of packages
@@ -106,7 +107,8 @@
       --execute="CREATE USER 'mautic'@'localhost' IDENTIFIED BY '{{ mysql_root_password }}';"
     register: stuff
     check_mode: no
-    changed_when: False
+    changed_when: True
+    ignore_errors: True
 
   - name: Create database user with  all database privileges
     command: >
@@ -115,7 +117,8 @@
       --execute="GRANT ALL PRIVILEGES ON *.* TO 'mautic'@'localhost';"
     register: stuff
     check_mode: no
-    changed_when: False
+    changed_when: True
+    ignore_errors: True
 
   - name: Create the MySQL mautic database
     command: >
@@ -124,7 +127,8 @@
       --execute="CREATE DATABASE mautic;"
     register: stuff
     check_mode: no
-    changed_when: False
+    changed_when: True
+    ignore_errors: True
 
   - name: Install PHP 7.4 Packages
     apt: name={{ item }} update_cache=yes state=latest
@@ -133,7 +137,7 @@
   - name: PHP.INI file update
     template: 
       src: "php.ini" 
-      dest: /etc/php/7.2/apache2/php.ini
+      dest: /etc/php/7.4/apache2/php.ini
       owner: root 
       mode: 0644
 
@@ -150,6 +154,7 @@
     git:
       repo: "https://github.com/mautic/mautic.git"
       dest: /usr/share/mautic/
+    ignore_errors: True
 
   - name: Composer Download 
     shell: curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
@@ -164,3 +169,40 @@
 
   - name: Composer Install
     shell: cd /usr/share/mautic/ && composer install
+
+  - name: Install certbot repository
+    apt:
+      name:
+        - certbot
+        - python3-certbot-apache
+      state: present
+
+  - name: Install SSL certificate 
+    shell: certbot --apache -d {{ web_url }} --non-interactive --agree-tos -m {{ ssl_register_id }}
+
+  - name: Set up Apache virtualhost for Application UI and API
+    template:
+      src: "unocloudtech.ssl.j2"
+      dest: "/etc/apache2/sites-available/{{ web_url }}-ssl.conf"
+      owner: root
+      mode: '0644'
+
+  - name: Site enable
+    shell: /usr/sbin/a2ensite {{ web_url }}-ssl.conf
+
+  - name: Apache reload
+    service:
+      name: apache2
+      state: reloaded
+  
+  - name: Site disable certbot UI and Idp
+    shell: cd /etc/apache2/sites-available &&  /usr/sbin/a2dissite *-le-ssl.conf
+
+  - name: Apache restart
+    service:
+      name: apache2
+      state: restarted
+
+  - name: Install certbot register 
+    shell: rm /etc/apache2/sites-available/*-le-ssl.conf
+    ignore_errors: True

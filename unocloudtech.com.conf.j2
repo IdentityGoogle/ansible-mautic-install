@@ -1,13 +1,16 @@
 <VirtualHost *:80>
+
 DocumentRoot /usr/share/mautic
 ServerName {{ web_url }}
 ServerAlias www.{{ web_url }}
 
-<Directory /usr/share/mautic/>
-Options +FollowSymlinks
-AllowOverride All
-Require all granted
-</Directory>
+Redirect permanent / https://{{ web_url }}/
+
+    <Directory /usr/share/mautic/>
+        Options +FollowSymlinks
+        AllowOverride All
+        Require all granted
+    </Directory>
 
 ErrorLog ${APACHE_LOG_DIR}/error.log
 CustomLog ${APACHE_LOG_DIR}/access.log combined

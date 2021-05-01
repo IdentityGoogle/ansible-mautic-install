@@ -1,0 +1,20 @@
+<IfModule mod_ssl.c>
+<VirtualHost *:443>
+ServerAdmin webmaster@{{ web_url }}
+ServerName {{ web_url }}
+DocumentRoot /usr/share/mautic
+ErrorLog ${APACHE_LOG_DIR}/error.log
+CustomLog ${APACHE_LOG_DIR}/access.log combined
+
+    <Directory /usr/share/mautic/>
+        Options +FollowSymlinks
+        AllowOverride All
+        Require all granted
+    </Directory>
+
+
+Include /etc/letsencrypt/options-ssl-apache.conf
+SSLCertificateFile /etc/letsencrypt/live/{{ web_url }}/fullchain.pem
+SSLCertificateKeyFile /etc/letsencrypt/live/{{ web_url }}/privkey.pem
+</VirtualHost>
+</IfModule>
