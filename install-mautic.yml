@@ -1,0 +1,166 @@
+---
+- hosts: localhost
+  become: true
+  gather_facts: true
+
+  vars:
+
+    web_url: marketing.budeis.com
+    mysql_root_password: Root@123
+
+  tasks:
+  - name: Remove a list of packages
+    apt:
+      name:
+      - postfix
+      - nfs
+      - rpcbind
+      state: absent
+
+  - name: Install a list of build-essential
+    shell: apt update && apt install build-essential -y
+    
+  - name: Install a list of packages
+    apt:
+      name:
+        - unzip
+        - nano
+        - curl
+      state: present
+
+  - name: Install apache2
+    apt:
+      name: apache2
+      state: latest
+
+  - apache2_module:
+      state: present
+      name: ssl
+
+  - apache2_module:
+      state: present
+      name: rewrite
+
+  - name: Reload apache2 to activate apache2 module
+    service:
+      name: apache2
+      state: restarted
+
+  - name: Install system apache2 config
+    template:
+      src: apache2.conf
+      dest: /etc/apache2/apache2.conf
+
+  - name: Install system apache2 security
+    template:
+      src: security.conf
+      dest: /etc/apache2/conf-available/security.conf
+
+  - name: Reload apache2 to activate specified site
+    service:
+        name: apache2
+        state: restarted
+
+  - name: Set up Apache virtualhost for Application UI and API
+    template:
+      src: "unocloudtech.com.conf.j2"
+      dest: "/etc/apache2/sites-available/{{ web_url }}.conf"
+      owner: root
+      mode: '0644'
+
+  - name: Site enable UI & API
+    shell: /usr/sbin/a2ensite {{ web_url }}.conf
+
+  - name: Apache reload
+    service:
+      name: apache2
+      state: reloaded
+
+  - name: Determine required MySQL Python libraries.
+    set_fact:
+      deb_mysql_python_package: "{% if 'python3' in ansible_python_interpreter|default('') %}python3-mysqldb{% else %}python-mysqldb{% endif %}"
+
+  - name: Ensure MySQL Python libraries are installed.
+    apt: "name={{ deb_mysql_python_package }} state=present"
+
+  - name: Install mysql
+    apt:
+      name:
+        - mysql-server
+        - python-pymysql
+        - python-apt
+      state: latest
+
+  - name: copy .my.cnf file with root password credentials
+    template: 
+      src: "files/my.cnf.j2" 
+      dest: /root/.my.cnf 
+      owner: root 
+      mode: 0600
+
+  - name: Create database user with name 'mautic' and password 
+    become: yes
+    command: >
+      mysql --user=root --password={{ mysql_root_password }}
+      --host=localhost --batch --skip-column-names
+      --execute="CREATE USER 'mautic'@'localhost' IDENTIFIED BY '{{ mysql_root_password }}';"
+    register: stuff
+    check_mode: no
+    changed_when: False
+
+  - name: Create database user with  all database privileges
+    command: >
+      mysql --user=root --password={{ mysql_root_password }}
+      --host=localhost --batch --skip-column-names
+      --execute="GRANT ALL PRIVILEGES ON *.* TO 'mautic'@'localhost';"
+    register: stuff
+    check_mode: no
+    changed_when: False
+
+  - name: Create the MySQL mautic database
+    command: >
+      mysql --user=root --password={{ mysql_root_password }}
+      --host=localhost --batch --skip-column-names
+      --execute="CREATE DATABASE mautic;"
+    register: stuff
+    check_mode: no
+    changed_when: False
+
+  - name: Install PHP 7.4 Packages
+    apt: name={{ item }} update_cache=yes state=latest
+    loop: ['python3-pymysql','php7.4','libapache2-mod-php', 'composer', 'php7.4-common','php7.4-gmp','php7.4-curl','php7.4-intl','php7.4-mbstring','php7.4-xmlrpc','php7.4-mysql', 'php7.4-bcmath','php7.4-gd','php7.4-xml','php7.4-cli','php7.4-zip','php7.4-imap']
+
+  - name: PHP.INI file update
+    template: 
+      src: "php.ini" 
+      dest: /etc/php/7.2/apache2/php.ini
+      owner: root 
+      mode: 0644
+
+  - name: Reload apache2 to activate specified site
+    service: 
+      name: apache2 
+      state: restarted
+
+  - name: install git package
+    apt:
+      name: git
+
+  - name: Get updated files from git akku-ui
+    git:
+      repo: "https://github.com/mautic/mautic.git"
+      dest: /usr/share/mautic/
+
+  - name: Composer Download 
+    shell: curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
+
+  - name:  change ownership of a mautic directory
+    file:
+      path: /usr/share/mautic/
+      state: directory
+      recurse: yes
+      owner: www-data
+      mode: '0755'
+
+  - name: Composer Install
+    shell: cd /usr/share/mautic/ && composer install
